@@ -10,7 +10,7 @@ import polars as pl
 pl.enable_string_cache()
 # Preprocess training data
 df_train = pl.read_csv("dataset_1st/training.csv", ignore_errors=True)
-df_train = df_train[:10000]
+# df_train = df_train[:10000]
 # Transform type of the following columns
 df_train = df_train.with_columns(
     pl.col("etymd").cast(int),
@@ -30,7 +30,7 @@ df_train = df_train.with_columns(set=pl.lit("train"))
 
 # Preprocess validation data
 df_valid = pl.read_csv("dataset_2nd/public.csv", ignore_errors=True)
-df_valid = df_valid[:10000]
+# df_valid = df_valid[:10000]
 # Transform type of the following columns
 df_valid = df_valid.with_columns(
     pl.col("etymd").cast(int),
@@ -50,7 +50,7 @@ df_valid = df_valid.with_columns(set=pl.lit("valid"))
 
 # Preprocess test data
 df_test = pl.read_csv("dataset_2nd/private_1_processed.csv", ignore_errors=True)
-df_test = df_test[:10000]
+# df_test = df_test[:10000]
 # Transform type of the following columns
 df_test = df_test.with_columns(
     pl.col("etymd").cast(int),

@@ -20,7 +20,7 @@ x = df.drop(["txkey", "label"]).to_pandas()
 # Assign label column as "y"
 y = df["label"].to_pandas()
 # Keep some validation data for evaluation
-idx = -1_000
+idx = -100_000
 x_train = x[:idx]
 y_train = y[:idx]
 
