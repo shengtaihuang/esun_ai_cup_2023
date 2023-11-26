@@ -5,6 +5,7 @@
 - requirements.txt: 需要的套件
 
 ## 檔案結構
+```
 .
 ├ Preprocess
 │ ├ preprocess.py
@@ -16,6 +17,7 @@
 │ └ README
 ├ requirements.txt
 └ README
+```
 
 ## 執行流程:
 ```
