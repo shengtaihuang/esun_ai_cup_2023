@@ -34,3 +34,7 @@ for bc, cols in zip(bin_cols, cols_list):
     out = df.select(pl.col(cols), pl.col("label")).to_pandas()
     report = dpeda.create_report(out, title=f"ESun {cols} Data")
     report.save(f"esun2023_{bc}_sum_eda")
+
+out = df.select(pl.col(f"^.*span.*$"), pl.col("label")).to_pandas()
+report = dpeda.create_report(out, title=f"ESun Time Span Data")
+report.save(f"esun2023_time_span_eda")

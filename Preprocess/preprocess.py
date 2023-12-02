@@ -10,21 +10,25 @@ from preprocess_utils import load_data
 pl.enable_string_cache()
 # Preprocess training data
 df_train, train_label = load_data(
-    path="dataset_1st/training.csv", mode="train", limit=10000
+    path="dataset_1st/training.csv", mode="train", limit=None
 )
 
 # Preprocess validation data
 df_valid, valid_label = load_data(
-    path="dataset_2nd/public.csv", mode="valid", limit=10000
+    path="dataset_2nd/public.csv", mode="valid", limit=None
 )
 
 # Preprocess test data
-df_test = load_data(
-    path="dataset_2nd/private_1_processed.csv", mode="test", limit=10000
+df_valid2, valid2_label = load_data(
+    path="dataset_2nd/private_1.csv", mode="valid2", limit=None
 )
 
+# Preprocess new test data
+df_test = load_data(path="private_2_processed.csv", mode="test", limit=None)
+
+
 # Concatenate training/validation/test to preprocess them together
-df = pl.concat([df_train, df_valid, df_test])
+df = pl.concat([df_train, df_valid, df_valid2, df_test])
 
 df = df.with_columns(
     pl.col("contp").cast(str).cast(pl.Categorical),
@@ -217,8 +221,6 @@ for col in binary_class:
 # Compute the number of "1" in binary class columns
 for col in binary_class:
     for bc in bin_cols:
-        if col == bin:
-            continue
         result_df = df.group_by(col).agg(pl.col(bc).sum().alias(f"{bc}_in_{col}_1"))
         df = df.join(result_df, on=col)
 
@@ -228,28 +230,6 @@ for col in binary_class:
 #         f"{col}_conam_dev"
 #     )
 # )
-
-# Drop id columns
-# Drop too many classes columns "stocn", "scity"
-# Drop insfg -> 看分期期數就好
-# Drop timestamps (assumed to be irrelavant)
-# Drop "flam1", "csmcu" (highly relative to "conam")
-df = df.drop(
-    [
-        "locdt",
-        # "loctm",
-        "chid",
-        "cano",
-        "mchno",
-        "acqic",
-        "insfg",
-        "mcc",
-        "flam1",
-        "stocn",
-        "scity",
-        "csmcu",
-    ]
-)
 
 # Filter training data from preprocessed data
 df_train = df.filter(pl.col("set") == "train")
@@ -262,7 +242,7 @@ print(df_train.shape)
 # Check the columns (usually for "label")
 print(df_train.columns)
 # Save training data as .csv
-df_train.write_csv("train.csv", separator=",")
+df_train.write_csv("real_train.csv", separator=",")
 
 # Filter validation data from preprocessed data
 df_valid = df.filter(pl.col("set") == "valid")
@@ -275,7 +255,20 @@ print(df_valid.shape)
 # Check the columns (usually for "label")
 print(df_valid.columns)
 # Save validation data as .csv
-df_valid.write_csv("valid.csv", separator=",")
+df_valid.write_csv("real_valid.csv", separator=",")
+
+# Filter test data from preprocessed data
+df_valid2 = df.filter(pl.col("set") == "valid2")
+# Add the label back to validation data
+df_valid2 = df_valid2.with_columns(label=valid2_label)
+# Drop the "set" column
+df_valid2 = df_valid2.drop(["set"])
+# Check the shape (should be -1 with training/validation data)
+print(df_valid2.shape)
+# Check the columns (usually for "label")
+print(df_valid2.columns)
+# Save test data as .csv
+df_valid2.write_csv("real_valid2.csv", separator=",")
 
 # Filter test data from preprocessed data
 df_test = df.filter(pl.col("set") == "test")
@@ -284,6 +277,6 @@ df_test = df_test.drop(["set"])
 # Check the shape (should be -1 with training/validation data)
 print(df_test.shape)
 # Check the columns (usually for "label")
-print(df_valid.columns)
+print(df_test.columns)
 # Save test data as .csv
-df_test.write_csv("test.csv", separator=",")
+df_test.write_csv("real_test.csv", separator=",")
