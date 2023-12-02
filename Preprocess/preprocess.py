@@ -3,78 +3,37 @@
 training, public 前處理包含 x 和 y
 private_1_processed 前處理只包含 x
 """
-
 import polars as pl
+from preprocess_utils import load_data
 
 # Add this to avoid error while concatenate string columns
 pl.enable_string_cache()
 # Preprocess training data
-df_train = pl.read_csv("dataset_1st/training.csv", ignore_errors=True)
-# df_train = df_train[:10000]
-# Transform type of the following columns
-df_train = df_train.with_columns(
-    pl.col("etymd").cast(int),
-    pl.col("mcc").cast(int),
-    pl.col("stocn").cast(int),
-    pl.col("scity").cast(int),
-    pl.col("stscd").cast(pl.Categorical),
-    pl.col("hcefg").cast(int),
-    pl.col("csmcu").cast(int),
+df_train, train_label = load_data(
+    path="dataset_1st/training.csv", mode="train", limit=10000
 )
-# Store the training label in another variable
-train_label = df_train["label"]
-# Drop the training label to align with test data
-df_train = df_train.drop("label")
-# Add a column "set" for split the training/validation/test data after preprocessing
-df_train = df_train.with_columns(set=pl.lit("train"))
 
 # Preprocess validation data
-df_valid = pl.read_csv("dataset_2nd/public.csv", ignore_errors=True)
-# df_valid = df_valid[:10000]
-# Transform type of the following columns
-df_valid = df_valid.with_columns(
-    pl.col("etymd").cast(int),
-    pl.col("mcc").cast(int),
-    pl.col("stocn").cast(int),
-    pl.col("scity").cast(int),
-    pl.col("stscd").cast(pl.Categorical),
-    pl.col("hcefg").cast(int),
-    pl.col("csmcu").cast(int),
+df_valid, valid_label = load_data(
+    path="dataset_2nd/public.csv", mode="valid", limit=10000
 )
-# Store the validation label in another variable
-valid_label = df_valid["label"]
-# Drop the validation label to align with test data
-df_valid = df_valid.drop("label")
-# Add a column "set" for split the training/validation/test data after preprocessing
-df_valid = df_valid.with_columns(set=pl.lit("valid"))
 
 # Preprocess test data
-df_test = pl.read_csv("dataset_2nd/private_1_processed.csv", ignore_errors=True)
-# df_test = df_test[:10000]
-# Transform type of the following columns
-df_test = df_test.with_columns(
-    pl.col("etymd").cast(int),
-    pl.col("mcc").cast(int),
-    pl.col("stocn").cast(int),
-    pl.col("scity").cast(int),
-    pl.col("stscd").cast(pl.Categorical),
-    pl.col("hcefg").cast(int),
-    pl.col("csmcu").cast(int),
+df_test = load_data(
+    path="dataset_2nd/private_1_processed.csv", mode="test", limit=10000
 )
-# Add a column "set" for split the training/validation/test data after preprocessing
-df_test = df_test.with_columns(set=pl.lit("test"))
 
 # Concatenate training/validation/test to preprocess them together
 df = pl.concat([df_train, df_valid, df_test])
 
 df = df.with_columns(
-    pl.col("etymd").cast(pl.Utf8).cast(pl.Categorical),
-    pl.col("mcc").cast(pl.Utf8).cast(pl.Categorical),
-    pl.col("stocn").cast(pl.Utf8).cast(pl.Categorical),
-    pl.col("scity").cast(pl.Utf8).cast(pl.Categorical),
-    # pl.col("stscd").cast(pl.Utf8).cast(pl.Categorical),
-    pl.col("hcefg").cast(pl.Utf8).cast(pl.Categorical),
-    pl.col("csmcu").cast(pl.Utf8).cast(pl.Categorical),
+    pl.col("contp").cast(str).cast(pl.Categorical),
+    pl.col("etymd").cast(str).cast(pl.Categorical),
+    pl.col("mcc").cast(str).cast(pl.Categorical),
+    pl.col("stocn").cast(str).cast(pl.Categorical),
+    pl.col("scity").cast(str).cast(pl.Categorical),
+    pl.col("hcefg").cast(str).cast(pl.Categorical),
+    pl.col("csmcu").cast(str).cast(pl.Categorical),
 )
 
 # Transform time column "loctm" to string and pad them to the same length = 6
@@ -119,14 +78,33 @@ df = df.join(rel_last_time, on="chid")
 df = df.with_columns((df["rel_last_time"] - df["loctm"]).alias("neg_loctm"))
 
 # The previous transaction, if not, set as 0
+result_df = df.group_by("chid").agg(pl.col("loctm").diff().alias("prev_loctm"))
+result_df = result_df.with_columns(
+    result_df["prev_loctm"].map_elements(lambda x: x[-1]).fill_null(0)
+)
+df = df.join(result_df, on="chid")
+
+
+# The transaction span, if not, set as 0
 result_df = (
     df.group_by("chid")
-    .agg(pl.col("loctm").diff().mean().alias("prev_loctm"))
+    .agg(pl.col("loctm").diff().mean().alias("loctm_span"))
     .fill_null(0)
 )
 df = df.join(result_df, on="chid")
 
-# Com
+for col in ["cano", "mchno", "acqic", "stocn", "scity"]:
+    result_df = df.group_by(col).agg(pl.mean("loctm_span").alias(f"{col}_span_mean"))
+    df = df.join(result_df, on=col)
+    result_df = df.group_by(col).agg(pl.mean("loctm_span").alias(f"{col}_span_std"))
+    df = df.join(result_df, on=col)
+    df = df.with_columns(
+        ((df["loctm_span"] - df[f"{col}_span_mean"]) / df[f"{col}_span_std"]).alias(
+            f"{col}_span_dev"
+        )
+    )
+
+# Compute the difference between real pay and conam
 df = df.with_columns((df["conam"] - df["flam1"]).alias("pay_diff"))
 
 # Count the times of each categorical column
@@ -138,7 +116,7 @@ for col in ["chid", "cano", "mchno", "acqic", "stocn", "scity"]:
 result_df = df.group_by("stocn").agg(pl.count("scity").alias(f"scity_in_stocn_count"))
 df = df.join(result_df, on="stocn")
 
-# Compute the number of NA in NA existed columns
+# Mark is NA as a column
 NA_cols = ["etymd", "mcc", "stocn", "scity", "stscd", "hcefg", "csmcu"]
 for nc in NA_cols:
     df = df.with_columns(pl.col(nc).is_null().cast(int).alias(f"{nc}_is_NAs"))
@@ -259,7 +237,7 @@ for col in binary_class:
 df = df.drop(
     [
         "locdt",
-        "loctm",
+        # "loctm",
         "chid",
         "cano",
         "mchno",
@@ -270,167 +248,6 @@ df = df.drop(
         "stocn",
         "scity",
         "csmcu",
-    ]
-)
-
-# Remove variables that Spearman correlation <= THRESHOLD
-# Remove variables corr <= 0
-df = df.drop(
-    [
-        "flbmk_conam_mean",
-        "mcc_conam_std",
-        "flbmk_conam_std",
-        "chid_conam_dev",
-        "cano_conam_dev",
-        "stscd_conam_dev",
-        "etymd_in_contp_NAs",
-        "etymd_in_flbmk_NAs",
-        "mcc_in_chid_NAs",
-        "mcc_in_cano_NAs",
-        "mcc_in_mchno_NAs",
-        "mcc_in_contp_NAs",
-        "mcc_in_mcc_NAs",
-        "mcc_in_flbmk_NAs",
-        "stocn_in_chid_NAs",
-        "stocn_in_cano_NAs",
-        "stocn_in_contp_NAs",
-        "stocn_in_flbmk_NAs",
-        "scity_in_contp_NAs",
-        "scity_in_csmcu_NAs",
-        "scity_in_flbmk_NAs",
-        "stscd_in_contp_NAs",
-        "stscd_in_etymd_NAs",
-        "stscd_in_flbmk_NAs",
-        "hcefg_in_mchno_NAs",
-        "hcefg_in_contp_NAs",
-        "hcefg_in_flbmk_NAs",
-        "csmcu_in_contp_NAs",
-        "csmcu_in_flbmk_NAs",
-        "ecfg_in_contp_1",
-        "ecfg_in_flbmk_1",
-        "insfg_in_contp_1",
-        "insfg_in_flbmk_1",
-        "bnsfg_in_contp_1",
-        "bnsfg_in_flbmk_1",
-        "ovrlt_in_mchno_1",
-        "ovrlt_in_contp_1",
-        "ovrlt_in_etymd_1",
-        "ovrlt_in_flbmk_1",
-        "flbmk_in_chid_1",
-        "flbmk_in_cano_1",
-        "flbmk_in_contp_1",
-        "flbmk_in_etymd_1",
-        "flbmk_in_flbmk_1",
-        "flg_3dsmk_in_contp_1",
-        "flg_3dsmk_in_flbmk_1",
-    ]
-)
-
-# Remove variables |corr| <= 0.01
-df = df.drop(
-    [
-        "mchno_count",
-        "mchno_conam_mean",
-        "acqic_conam_mean",
-        "contp_conam_mean",
-        "etymd_conam_mean",
-        "mcc_conam_mean",
-        "insfg_conam_mean",
-        "flg_3dsmk_conam_mean",
-        "mchno_conam_std",
-        "contp_conam_std",
-        "etymd_conam_std",
-        "insfg_conam_std",
-        "flg_3dsmk_conam_std",
-        "etymd_in_mchno_NAs",
-        "etymd_in_etymd_NAs",
-        "etymd_in_mcc_NAs",
-        "etymd_in_insfg_NAs",
-        "etymd_in_flg_3dsmk_NAs",
-        "mcc_in_acqic_NAs",
-        "mcc_in_etymd_NAs",
-        "mcc_in_insfg_NAs",
-        "mcc_in_flg_3dsmk_NAs",
-        "stocn_in_stocn_NAs",
-        "stocn_in_insfg_NAs",
-        "stocn_in_flg_3dsmk_NAs",
-        "scity_in_mchno_NAs",
-        "scity_in_acqic_NAs",
-        "scity_in_etymd_NAs",
-        "scity_in_insfg_NAs",
-        "scity_in_flg_3dsmk_NAs",
-        "stscd_in_mchno_NAs",
-        "stscd_in_insfg_NAs",
-        "stscd_in_flg_3dsmk_NAs",
-        "hcefg_in_acqic_NAs",
-        "hcefg_in_insfg_NAs",
-        "hcefg_in_flg_3dsmk_NAs",
-        "csmcu_in_mchno_NAs",
-        "csmcu_in_acqic_NAs",
-        "csmcu_in_etymd_NAs",
-        "csmcu_in_csmcu_NAs",
-        "csmcu_in_insfg_NAs",
-        "csmcu_in_flg_3dsmk_NAs",
-        "ecfg_in_insfg_1",
-        "ecfg_in_flg_3dsmk_1",
-        "insfg_in_mchno_1",
-        "insfg_in_etymd_1",
-        "insfg_in_insfg_1",
-        "insfg_in_flg_3dsmk_1",
-        "bnsfg_in_chid_1",
-        "bnsfg_in_cano_1",
-        "bnsfg_in_mchno_1",
-        "bnsfg_in_insfg_1",
-        "bnsfg_in_flg_3dsmk_1",
-        "ovrlt_in_chid_1",
-        "ovrlt_in_cano_1",
-        "ovrlt_in_insfg_1",
-        "ovrlt_in_flg_3dsmk_1",
-        "flbmk_in_mchno_1",
-        "flbmk_in_insfg_1",
-        "flbmk_in_flg_3dsmk_1",
-        "flg_3dsmk_in_insfg_1",
-        "flg_3dsmk_in_flg_3dsmk_1",
-    ]
-)
-
-# Remove variables |corr| <= 0.02
-df = df.drop(
-    [
-        "ovrlt_conam_mean",
-        "chid_conam_std",
-        "cano_conam_std",
-        "acqic_conam_std",
-        "ovrlt_conam_std",
-        "acqic_conam_dev",
-        "ovrlt_conam_dev",
-        "flbmk_conam_dev",
-        "etymd_in_cano_NAs",
-        "etymd_in_acqic_NAs",
-        "etymd_in_ovrlt_NAs",
-        "mcc_in_ovrlt_NAs",
-        "stocn_in_mchno_NAs",
-        "stocn_in_etymd_NAs",
-        "stocn_in_ovrlt_NAs",
-        "scity_in_chid_NAs",
-        "scity_in_cano_NAs",
-        "scity_in_ovrlt_NAs",
-        "stscd_in_ovrlt_NAs",
-        "hcefg_in_chid_NAs",
-        "hcefg_in_cano_NAs",
-        "hcefg_in_ovrlt_NAs",
-        "csmcu_in_ovrlt_NAs",
-        "ecfg_in_mchno_1",
-        "ecfg_in_ovrlt_1",
-        "insfg_in_chid_1",
-        "insfg_in_cano_1",
-        "insfg_in_ovrlt_1",
-        "bnsfg_in_etymd_1",
-        "bnsfg_in_ovrlt_1",
-        "ovrlt_in_ovrlt_1",
-        "flbmk_in_ovrlt_1",
-        "flg_3dsmk_in_mchno_1",
-        "flg_3dsmk_in_ovrlt_1",
     ]
 )
 
